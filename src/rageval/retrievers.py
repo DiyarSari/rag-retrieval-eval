@@ -107,6 +107,25 @@ class Dense:
         return _top_k(self.ids, self.matrix @ q, k)
 
 
+class Hybrid:
+    """Reciprocal Rank Fusion: score(d) = sum over retrievers of 1 / (c + rank)."""
+
+    def __init__(self, retrievers: Sequence[Retriever], c: int = 60, depth: int = 100):
+        self.retrievers, self.c, self.depth = retrievers, c, depth
+        self.name = "Hybrid RRF (" + " + ".join(r.name.split(" ")[0] for r in retrievers) + ")"
+
+    def search(self, query: str, k: int = 10) -> list[Hit]:
+        return rrf([r.search(query, self.depth) for r in self.retrievers], self.c)[:k]
+
+
+def rrf(rankings: Sequence[Sequence[Hit]], c: int = 60) -> list[Hit]:
+    fused: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, (doc, _) in enumerate(ranking):
+            fused[doc] = fused.get(doc, 0.0) + 1.0 / (c + rank + 1)
+    return sorted(fused.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def _top_k(ids: list[str], scores: np.ndarray, k: int, drop_zeros: bool = False) -> list[Hit]:
     k = min(k, len(ids))
     top = np.argpartition(-scores, k - 1)[:k]
