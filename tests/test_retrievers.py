@@ -1,5 +1,5 @@
 from rageval.data import Document
-from rageval.retrievers import BM25, tokenize
+from rageval.retrievers import BM25, rrf, tokenize
 
 DOCS = [
     Document("d1", "Vitamin D", "Vitamin D supplementation reduces fracture risk in older adults."),
@@ -26,3 +26,14 @@ def test_bm25_rare_terms_outweigh_common_ones():
 
 def test_bm25_returns_no_hits_without_term_overlap():
     assert BM25(DOCS).search("quantum chromodynamics", k=4) == []
+
+
+def test_rrf_rewards_agreement_between_rankings():
+    fused = rrf([[("a", 9), ("b", 8), ("c", 7)], [("c", 0.9), ("a", 0.8), ("d", 0.1)]])
+    assert [doc for doc, _ in fused][:2] == ["a", "c"]
+    assert {doc for doc, _ in fused} == {"a", "b", "c", "d"}
+
+
+def test_rrf_score_matches_formula():
+    fused = dict(rrf([[("a", 1)], [("x", 1), ("a", 1)]], c=60))
+    assert fused["a"] == 1 / 61 + 1 / 62
