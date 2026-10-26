@@ -118,6 +118,32 @@ class Hybrid:
         return rrf([r.search(query, self.depth) for r in self.retrievers], self.c)[:k]
 
 
+class Reranked:
+    """Re-score the first stage's top ``depth`` hits with a cross-encoder."""
+
+    def __init__(
+        self,
+        first_stage: Retriever,
+        docs: Sequence[Document],
+        model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        depth: int = 100,
+    ):
+        from sentence_transformers import CrossEncoder
+
+        self.first_stage, self.depth = first_stage, depth
+        self.text = {d.id: d.full_text for d in docs}
+        self.model = CrossEncoder(model)
+        self.name = f"{first_stage.name} → rerank"
+
+    def search(self, query: str, k: int = 10) -> list[Hit]:
+        candidates = self.first_stage.search(query, self.depth)
+        if not candidates:
+            return []
+        scores = self.model.predict([(query, self.text[d]) for d, _ in candidates], batch_size=64)
+        order = np.argsort(-scores, kind="stable")
+        return [(candidates[i][0], float(scores[i])) for i in order[:k]]
+
+
 def rrf(rankings: Sequence[Sequence[Hit]], c: int = 60) -> list[Hit]:
     fused: dict[str, float] = {}
     for ranking in rankings:
