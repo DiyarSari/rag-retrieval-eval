@@ -72,6 +72,41 @@ class BM25:
         return _top_k(self.ids, self.scores(query), k, drop_zeros=True)
 
 
+class Dense:
+    """Bi-encoder retrieval with exact cosine search; embeddings cached on disk."""
+
+    def __init__(
+        self,
+        docs: Sequence[Document],
+        model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        cache_dir: Path | None = None,
+    ):
+        from sentence_transformers import SentenceTransformer
+
+        self.name = f"Dense ({model.split('/')[-1]})"
+        self.ids = [d.id for d in docs]
+        self.model = SentenceTransformer(model)
+
+        cache = cache_dir / f"{model.replace('/', '__')}-{len(docs)}.npy" if cache_dir else None
+        if cache and cache.exists():
+            self.matrix = np.load(cache)
+        else:
+            self.matrix = self.model.encode(
+                [d.full_text for d in docs],
+                batch_size=64,
+                normalize_embeddings=True,
+                show_progress_bar=True,
+                convert_to_numpy=True,
+            )
+            if cache:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                np.save(cache, self.matrix)
+
+    def search(self, query: str, k: int = 10) -> list[Hit]:
+        q = self.model.encode(query, normalize_embeddings=True, convert_to_numpy=True)
+        return _top_k(self.ids, self.matrix @ q, k)
+
+
 def _top_k(ids: list[str], scores: np.ndarray, k: int, drop_zeros: bool = False) -> list[Hit]:
     k = min(k, len(ids))
     top = np.argpartition(-scores, k - 1)[:k]
